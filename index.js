@@ -276,7 +276,7 @@ async function enrichJobsWithDetails(concurrency = 1) {
     sendTelegramMessage(`🔍 --ENRICH ${jobs.length} jobs`)
     let totalEnriched = 0;
     for(let job of jobs) {
-      await delay(500);
+      await delay(2800);
       const payload = {
         query,
         variables: {
