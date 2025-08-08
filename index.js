@@ -400,11 +400,11 @@ const task = cron.schedule('*/10 * * * *', async () => {
 });
 
 
-/*fetchUpworkJobs()
+fetchUpworkJobs()
     .then(() => enrichJobsWithDetails())
-    .catch(err => console.error(err));*/
+    .catch(err => console.error(err));
 
-task.start();
-console.log('Cron job with overlap prevention scheduled to run every 10 minutes');
+//task.start();
+//console.log('Cron job with overlap prevention scheduled to run every 10 minutes');
 
 
