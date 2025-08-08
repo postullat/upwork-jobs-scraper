@@ -381,13 +381,13 @@ const task = cron.schedule('*/10 * * * *', async () => {
 
   isJobRunning = true;
   console.log(`[${new Date().toISOString()}] Starting scheduled job...`);
-  sendTelegramMessage(`[${new Date().toISOString()}] Starting scheduled job...`)
+  //sendTelegramMessage(`[${new Date().toISOString()}] Starting scheduled job...`)
 
   try {
     await fetchUpworkJobs();
     await enrichJobsWithDetails();
     console.log(`[${new Date().toISOString()}] Job completed successfully`);
-    sendTelegramMessage(`[${new Date().toISOString()}] Job completed successfully`)
+    //sendTelegramMessage(`[${new Date().toISOString()}] Job completed successfully`)
   } catch (err) {
     console.error(`[${new Date().toISOString()}] Job failed:`, err.message);
     sendTelegramMessage(`[${new Date().toISOString()}] Job failed: ${err.message}`)
@@ -400,11 +400,11 @@ const task = cron.schedule('*/10 * * * *', async () => {
 });
 
 
-fetchUpworkJobs()
+/*fetchUpworkJobs()
     .then(() => enrichJobsWithDetails())
-    .catch(err => console.error(err));
+    .catch(err => console.error(err));*/
 
-/*task.start();
+task.start();
 console.log('Cron job with overlap prevention scheduled to run every 10 minutes');
-sendTelegramMessage('Cron job with overlap prevention scheduled to run every 10 minutes')*/
+
 
