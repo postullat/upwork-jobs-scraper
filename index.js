@@ -310,9 +310,17 @@ async function enrichJobsWithDetails(concurrency = 1) {
 
         let jobDetails = data?.data?.jobAuthDetails;
         if (!jobDetails) {
+          await collection.updateOne(
+              {id: job.id},
+              {
+                $set: {
+                  updatedAt: new Date(),
+                  status: "CORRUPTED"
+                },
+              });
           console.warn(`⚠️ No details returned for job ${job.id}`);
           sendTelegramMessage(`⚠️ No details returned for job ${job.id}`)
-          return;
+          continue;
         }
 
         await collection.updateOne(
