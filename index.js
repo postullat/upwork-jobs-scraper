@@ -300,8 +300,11 @@ async function enrichJobsWithDetails(concurrency = 1) {
         );
 
         if (!response.ok) {
+
           console.error(`❌ Failed to fetch job ${job.id}: ${response.status}`);
           sendTelegramMessage(`❌ Failed to fetch job ${job.id}: ${response.status}`)
+
+          if (response.status === 401) break;
           continue;
         }
 
