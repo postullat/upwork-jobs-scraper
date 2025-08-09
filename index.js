@@ -302,7 +302,7 @@ async function enrichJobsWithDetails(concurrency = 1) {
         if (!response.ok) {
           console.error(`❌ Failed to fetch job ${job.id}: ${response.status}`);
           sendTelegramMessage(`❌ Failed to fetch job ${job.id}: ${response.status}`)
-          return;
+          continue;
         }
 
         const data = await response.json();
