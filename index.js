@@ -24,7 +24,7 @@ const headers = {
 };
 
 const proxyHost = 'res.proxy-seller.com';
-const proxyPort = '10000';
+const proxyPort = '10001';
 const proxyUser = 'b02fa50863fc96e6';
 const proxyPass = 'b8tRlFYa';
 
