@@ -246,7 +246,7 @@ async function fetchUpworkJobs() {
 
 function getAvgHireRate(postedCount, totalHires) {
   if(!postedCount || !totalHires) return 0;
-  if(postedCount === totalHires) return 100;
+  if(totalHires >= postedCount) return 100;
 
   return totalHires * 100 / postedCount;
 
