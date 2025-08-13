@@ -11,7 +11,7 @@ const uri = 'mongodb://admin:fordev123@127.0.0.1:32022/upwork?authSource=admin';
 const dbName = 'upwork';
 const collectionName = 'jobs';
 const headers = {
-'Authorization': 'Bearer oauth2v2_f790d0045f0f4c61a69d068a6353ec84',
+'Authorization': 'Bearer oauth2v2_530b1c552508712319a3f79dbc0ea60f',
 'Content-Type': 'application/json',
 'Accept': '*/*',
 'Accept-Encoding': 'gzip, deflate, br',
@@ -20,7 +20,7 @@ const headers = {
 'User-Agent': 'PostmanRuntime/7.45.0',
 'Referer': 'https://www.upwork.com/',
 'Origin': 'https://www.upwork.com',
-'Cookie': '__cf_bm=whndVOAACq2RJvAULJlW1WNigBivP3z.kkZuotXnijg-1755003189-1.0.1.1-QjS5J8wokfBuHUYbifHSQKfwRqeTF3OIWMivLUESampjXVpDRtpoLa3hzwkRK_izVW19GXMblpJQOPIGZtm.7J17ZrL95jYl1v.r0xuBpQc; _cfuvid=NqOe9n.7gSrqqEwRqgvgYfNr4QOa92aJrl2dqYoQYc0-1755003189891-0.0.1.1-604800000; __cflb=02DiuEXPXZVk436fJfSVuuwDqLqkhavJbBRXpJE6dxRmM'
+'Cookie': '_cfuvid=PB._bcpHjPEn4Fkhyk3hjApQddXTcTUijshiRIx.Pz4-1755088101379-0.0.1.1-604800000; __cflb=02DiuEXPXZVk436fJfSVuuwDqLqkhavJbnBtc8QWG8BiB'
 };
 
 const proxyHost = 'res.proxy-seller.com';
