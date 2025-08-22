@@ -1,8 +1,9 @@
-require('dotenv').config();
-const {sendTelegramMessage} = require("./src/service/telegramService");
-const { MongoClient } = require('mongodb');
-const { ProxyAgent, fetch: undisciFetch } = require('undici');
-const cron = require('node-cron');
+import 'dotenv/config';
+import { sendTelegramMessage } from './src/service/telegramService.js';
+import { MongoClient } from 'mongodb';
+import { ProxyAgent, fetch as undisciFetch } from 'undici';
+import cron from 'node-cron';
+import {getOAuth2v2Cookies} from "./src/pupeteer-cookies.js";
 
 //const uri = 'mongodb://localhost:27017'; // Replace with your MongoDB URI
 const uri = 'mongodb://admin:fordev123@127.0.0.1:32022/upwork?authSource=admin';
@@ -19,8 +20,7 @@ const headers = {
 'Connection': 'keep-alive',
 'User-Agent': 'PostmanRuntime/7.45.0',
 'Referer': 'https://www.upwork.com/',
-'Origin': 'https://www.upwork.com',
-'Cookie': '__cf_bm=H7xtlU10NjIMZWRH_QOkMe.gzRSVPbC2QFdQNKZa_yA-1755807450-1.0.1.1-8b82CzyV7aFXHHmmJ_tMo_xURWRQYomhWxs0HvDPNMn91dOSFLniFZcqNdPeBEFYlrRLlun5h0TkmZUTTRLN0NHAHibtd16zK4p_R75oOHc; _cfuvid=DMV7E.1UEiH_G5IfGDY_zaD3pJ16DnhBckQ8dfjbIqE-1755807450522-0.0.1.1-604800000; __cflb=02DiuEXPXZVk436fJfSVuuwDqLqkhavJbe2u8aByfaurs'
+'Origin': 'https://www.upwork.com'
 };
 
 const proxyHost = 'res.proxy-seller.com';
@@ -113,7 +113,7 @@ async function storeJobsInMongoDB(jobs) {
           updatedAt: new Date(),
 		  createdAt: new Date(),
           status: "PENDING"
-		  
+
         }
       };
       const options = { upsert: true };
@@ -182,22 +182,45 @@ async function fetchUpworkJobs() {
       payload.variables.requestVariables.paging.offset = offset;
       payload.variables.requestVariables.paging.count = count;
 
-
-      const response = await undisciFetch(url, {
+      let reqPayload = {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
         dispatcher: proxyAgent,
-        signal: AbortSignal.timeout(15000)
-      });
-
+        signal: AbortSignal.timeout(50000)
+      };
+      let response = await undisciFetch(url, reqPayload);
+      let json;
       if (!response.ok) {
-        console.error(`HTTP error: ${response.status}`);
-        //sendTelegramMessage(`HTTP error: ${response.status}`)
-        break;
+
+        let apiAccessResolved = false;
+        if (response.status === 401) {
+          const cookies = await getOAuth2v2Cookies();
+          for (const cookie of cookies) {
+            headers['Authorization'] = `Bearer ${cookie.value}`;
+            reqPayload.headers = headers;
+            response = await undisciFetch(url, reqPayload);
+            if (response.ok) {
+              json = await response.json();
+              if(json?.data) {
+                  apiAccessResolved = true;
+                  break;
+              }
+            }
+          }
+        } else {
+            break;
+        }
+
+        if(!apiAccessResolved) {
+            console.error(`HTTP error: ${response.status}`);
+            await sendTelegramMessage(`HTTP error: ${response.status}. Can not resolve access token`);
+            break;
+        }
       }
 
-      const data = await response.json();
+      const data = json ? json : await response.json();
+      json = undefined;
       //console.log("Response data:",data);
       const results = data?.data?.search?.universalSearchNuxt?.userJobSearchV1?.results;
 
@@ -235,11 +258,11 @@ async function fetchUpworkJobs() {
     }
 
     console.log(`--FETCHED and stored jobs: ${allJobs.length}`);
-    sendTelegramMessage(`--FETCHED and stored jobs: ${allJobs.length}`)
+    await sendTelegramMessage(`--FETCHED and stored jobs: ${allJobs.length}`)
     return allJobs;
   } catch (err) {
     console.error('Failed to fetch jobs:', err);
-    sendTelegramMessage(`Failed to fetch jobs ${err}`)
+    await sendTelegramMessage(`Failed to fetch jobs ${err}`)
   }
 }
 
@@ -258,7 +281,7 @@ async function enrichJobsWithDetails(concurrency = 1) {
   if (!proxyOk) return;
 
   const client = new MongoClient(uri);
-
+  const url = 'https://www.upwork.com/api/graphql/v1?alias=gql-query-get-auth-job-details';
   const query = `fragment JobPubOpeningInfoFragment on Job {\n    ciphertext\n    id\n    type\n    access\n    title\n    hideBudget\n    createdOn\n    notSureProjectDuration\n    notSureFreelancersToHire\n    notSureExperienceLevel\n    notSureLocationPreference\n    premium\n  }\n  fragment JobPubOpeningSegmentationDataFragment on JobSegmentation {\n    customValue\n    label\n    name\n    sortOrder\n    type\n    value\n    skill {\n      description\n      externalLink\n      prettyName\n      skill\n      id\n    }\n  }\n  fragment JobPubOpeningSandDataFragment on SandsData {\n    occupation {\n      freeText\n      ontologyId\n      prefLabel\n      id\n      uid: id\n    }\n    ontologySkills {\n      groupId\n      id\n      freeText\n      prefLabel\n      groupPrefLabel\n      relevance\n    }\n    additionalSkills {\n      groupId\n      id\n      freeText\n      prefLabel\n      relevance\n    }\n  }\n  fragment JobPubOpeningFragment on JobPubOpeningInfo {\n    status\n    postedOn\n    publishTime\n    sourcingTime\n    startDate\n    deliveryDate\n    workload\n    contractorTier\n    description\n    info {\n      ...JobPubOpeningInfoFragment\n    }\n    segmentationData {\n      ...JobPubOpeningSegmentationDataFragment\n    }\n    sandsData {\n      ...JobPubOpeningSandDataFragment\n    }\n    category {\n      name\n      urlSlug\n    }\n    categoryGroup {\n      name\n      urlSlug\n    }\n    budget {\n      amount\n      currencyCode\n    }\n    annotations {\n      tags\n    }\n    engagementDuration {\n      label\n      weeks\n    }\n    extendedBudgetInfo {\n      hourlyBudgetMin\n      hourlyBudgetMax\n      hourlyBudgetType\n    }\n    attachments @include(if: $isLoggedIn) {\n      fileName\n      length\n      uri\n    }\n    clientActivity {\n      lastBuyerActivity\n      totalApplicants\n      totalHired\n      totalInvitedToInterview\n      unansweredInvites\n      invitationsSent\n      numberOfPositionsToHire\n    }\n    deliverables\n    deadline\n    tools {\n      name\n    }\n  }\n  fragment JobQualificationsFragment on JobQualifications {\n    countries\n    earnings\n    groupRecno\n    languages\n    localDescription\n    localFlexibilityDescription\n    localMarket\n    minJobSuccessScore\n    minOdeskHours\n    onSiteType\n    prefEnglishSkill\n    regions\n    risingTalent\n    shouldHavePortfolio\n    states\n    tests\n    timezones\n    type\n    locationCheckRequired\n    group {\n      groupId\n      groupLogo\n      groupName\n    }\n    location {\n      city\n      country\n      countryTimezone\n      offsetFromUtcMillis\n      state\n      worldRegion\n    }\n    locations {\n      id\n      type\n    }\n    minHoursWeek @skip(if: $isLoggedIn)\n  }\n  fragment JobAuthDetailsOpeningFragment on JobAuthOpeningInfo {\n    job {\n      ...JobPubOpeningFragment\n    }\n    qualifications {\n      ...JobQualificationsFragment\n    }\n    questions {\n      question\n      position\n    }\n  }\n  fragment JobPubBuyerInfoFragment on JobPubBuyerInfo {\n    location {\n      offsetFromUtcMillis\n      countryTimezone\n      city\n      country\n    }\n    stats {\n      totalAssignments\n      activeAssignmentsCount\n      hoursCount\n      feedbackCount\n      score\n      totalJobsWithHires\n      totalCharges {\n        amount\n      }\n    }\n    company {\n      name @include(if: $isLoggedIn)\n      companyId @include(if: $isLoggedIn)\n      isEDCReplicated\n      contractDate\n      profile {\n        industry\n        size\n      }\n    }\n    jobs {\n      openCount\n      postedCount @include(if: $isLoggedIn)\n      openJobs {\n        id\n        uid: id\n        isPtcPrivate\n        ciphertext\n        title\n        type\n      }\n    }\n    avgHourlyJobsRate @include(if: $isLoggedIn) {\n      amount\n    }\n  }\n  fragment JobAuthDetailsBuyerWorkHistoryFragment on BuyerWorkHistoryItem {\n    isPtcJob\n    status\n    isEDCReplicated\n    isPtcPrivate\n    startDate\n    endDate\n    totalCharge\n    totalHours\n    jobInfo {\n      title\n      id\n      uid: id\n      access\n      type\n      ciphertext\n    }\n    contractorInfo {\n      contractorName\n      accessType\n      ciphertext\n    }\n    rate {\n      amount\n    }\n    feedback {\n      feedbackSuppressed\n      score\n      comment\n    }\n    feedbackToClient {\n      feedbackSuppressed\n      score\n      comment\n    }\n  }\n  fragment JobAuthDetailsBuyerFragment on JobAuthBuyerInfo {\n    enterprise\n    isPaymentMethodVerified\n    info {\n      ...JobPubBuyerInfoFragment\n    }\n    workHistory {\n      ...JobAuthDetailsBuyerWorkHistoryFragment\n    }\n  }\n  fragment JobAuthDetailsCurrentUserInfoFragment on JobCurrentUserInfo {\n    owner\n    freelancerInfo {\n      profileState\n      applied\n      devProfileCiphertext\n      hired\n      application {\n        vjApplicationId\n      }\n      pendingInvite {\n        inviteId\n      }\n      contract {\n        contractId\n        status\n      }\n      hourlyRate {\n        amount\n      }\n      qualificationsMatches {\n        matches {\n          clientPreferred\n          clientPreferredLabel\n          freelancerValue\n          freelancerValueLabel\n          qualification\n          qualified\n        }\n      }\n    }\n  }\n  query JobAuthDetailsQuery(\n    $id: ID!\n    $isFreelancerOrAgency: Boolean!\n    $isLoggedIn: Boolean!\n  ) {\n    jobAuthDetails(id: $id) {\n      hiredApplicantNames\n      opening {\n        ...JobAuthDetailsOpeningFragment\n      }\n      buyer {\n        ...JobAuthDetailsBuyerFragment\n      }\n      currentUserInfo {\n        ...JobAuthDetailsCurrentUserInfoFragment\n      }\n      similarJobs {\n        id\n        uid: id\n        ciphertext\n        title\n        snippet\n      }\n      workLocation {\n        onSiteCity\n        onSiteCountry\n        onSiteReason\n        onSiteReasonFlexible\n        onSiteState\n        onSiteType\n      }\n      phoneVerificationStatus {\n        status\n      }\n      applicantsBidsStats {\n        avgRateBid {\n          amount\n          currencyCode\n        }\n        minRateBid {\n          amount\n          currencyCode\n        }\n        maxRateBid {\n          amount\n          currencyCode\n        }\n      }\n      specializedProfileOccupationId @include(if: $isFreelancerOrAgency)\n      applicationContext @include(if: $isFreelancerOrAgency) {\n        freelancerAllowed\n        clientAllowed\n      }\n    }\n  }`;
 
   try {
@@ -273,7 +296,7 @@ async function enrichJobsWithDetails(concurrency = 1) {
         .toArray();
 
     console.log(`🔍 Found ${jobs.length} jobs to enrich`);
-    sendTelegramMessage(`🔍 --ENRICH ${jobs.length} jobs`)
+    await sendTelegramMessage(`🔍 --ENRICH ${jobs.length} jobs`)
     let totalEnriched = 0;
     for(let job of jobs) {
       await delay(2800);
@@ -286,29 +309,51 @@ async function enrichJobsWithDetails(concurrency = 1) {
         }
       };
 
-      try {
-        const response = await undisciFetch(
-            'https://www.upwork.com/api/graphql/v1?alias=gql-query-get-auth-job-details',
-            {
-              method: 'POST',
-              headers,
-              body: JSON.stringify(payload),
-              dispatcher: proxyAgent,
-              signal: AbortSignal.timeout(15000)
+      let reqPayload = {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          dispatcher: proxyAgent,
+          signal: AbortSignal.timeout(45000)
 
-            }
-        );
+      }
+      try {
+        let response = await undisciFetch(url, reqPayload);
+        let json;
 
         if (!response.ok) {
 
-          console.error(`❌ Failed to fetch job ${job.id}: ${response.status}`);
-          sendTelegramMessage(`❌ Failed to fetch job ${job.id}: ${response.status}`)
+          let apiAccessResolved = false;
+          if (response.status === 401) {
+              const cookies = await getOAuth2v2Cookies();
+              for (const cookie of cookies) {
+                  headers['Authorization'] = `Bearer ${cookie.value}`;
+                  reqPayload.headers = headers;
+                  response = await undisciFetch(url, reqPayload);
+                  if (response.ok) {
+                      json = await response.json();
+                      if(json?.data) {
+                          apiAccessResolved = true;
+                          break;
+                      }
+                  }
+              }
+          } else {
+              console.error(`❌ Failed to fetch job ${job.id}: ${response.status}`);
+              await sendTelegramMessage(`❌ Failed to fetch job ${job.id}: ${response.status}`)
+              continue;
+          }
 
-          if (response.status === 401) break;
-          continue;
+          if(!apiAccessResolved) {
+              console.error(`❌ Failed to fetch job ${job.id}: ${response.status}. Can not resolve access token`);
+              await sendTelegramMessage(`❌ Failed to fetch job ${job.id}: ${response.status}. Can not resolve access token`)
+              break;
+          }
+
         }
 
-        const data = await response.json();
+        const data = json ? json : await response.json();
+        json = undefined;
         //console.log("Response data:", data);
 
         let jobDetails = data?.data?.jobAuthDetails;
@@ -322,7 +367,7 @@ async function enrichJobsWithDetails(concurrency = 1) {
                 },
               });
           console.warn(`⚠️ No details returned for job ${job.id}`);
-          sendTelegramMessage(`⚠️ No details returned for job ${job.id}`)
+          await sendTelegramMessage(`⚠️ No details returned for job ${job.id}`)
           continue;
         }
 
@@ -411,11 +456,11 @@ const task = cron.schedule('*/10 * * * *', async () => {
 });
 
 
-/*fetchUpworkJobs()
+fetchUpworkJobs()
     .then(() => enrichJobsWithDetails())
-    .catch(err => console.error(err));*/
+    .catch(err => console.error(err));
 
-task.start();
+//task.start();
 console.log('Cron job with overlap prevention scheduled to run every 10 minutes');
 
 
