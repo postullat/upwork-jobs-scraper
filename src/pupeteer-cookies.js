@@ -20,6 +20,7 @@ export async function getOAuth2v2Cookies() {
         const launchOptions = {
             headless: true,
             args: [
+                '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-accelerated-2d-canvas',
