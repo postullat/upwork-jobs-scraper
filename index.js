@@ -314,7 +314,7 @@ async function enrichJobsWithDetails(concurrency = 1) {
           headers,
           body: JSON.stringify(payload),
           dispatcher: proxyAgent,
-          signal: AbortSignal.timeout(45000)
+          signal: AbortSignal.timeout(35000)
 
       }
       try {
