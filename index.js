@@ -1,18 +1,16 @@
 import 'dotenv/config';
 import { sendTelegramMessage } from './src/service/telegramService.js';
-import { MongoClient } from 'mongodb';
 import { ProxyAgent, fetch as undisciFetch } from 'undici';
 import cron from 'node-cron';
 import {getOAuth2v2Cookies} from "./src/pupeteer-cookies.js";
+import {enrichJob, getPendingJobs, setJobStatus, storeJobsInMongoDB} from "./src/dao/upworkJobsDao.js";
+import {checkProxyConnection} from "./src/proxy/checkProxy.js";
 
-//const uri = 'mongodb://localhost:27017'; // Replace with your MongoDB URI
-const uri = 'mongodb://admin:fordev123@127.0.0.1:32022/upwork?authSource=admin';
+const accessTokenInitial = process.env.ACCESS_TOKEN_INITIAL;
 
 
-const dbName = 'upwork';
-const collectionName = 'jobs';
 const headers = {
-'Authorization': 'Bearer oauth2v2_816667453d95f272ea261726099d5e3a',
+'Authorization': `Bearer ${accessTokenInitial}`,
 'Content-Type': 'application/json',
 'Accept': '*/*',
 'Accept-Encoding': 'gzip, deflate, br',
@@ -23,118 +21,27 @@ const headers = {
 'Origin': 'https://www.upwork.com'
 };
 
-const proxyHost = 'res.proxy-seller.com';
-const proxyPort = '10001';
-const proxyUser = 'b02fa50863fc96e6';
-const proxyPass = 'b8tRlFYa';
+const proxyHost = process.env.PROXY_HOST;
+const proxyPort = process.env.PROXY_PORT;
+const proxyUser = process.env.PROXY_USER;
+const proxyPass = process.env.PROXY_PASS;
 
 // Build proxy URL
 const proxyUrl = `http://${proxyUser}:${proxyPass}@${proxyHost}:${proxyPort}`;
 const proxyAgent = new ProxyAgent(proxyUrl);
 
+console.log(`proxyHost: ${proxyHost}`);
+console.log(`proxyPort: ${proxyPort}`);
+console.log(`proxyUser: ${proxyUser}`);
+console.log(`proxyPass: ${proxyPass}`);
+console.log(`Bearer: ${accessTokenInitial}`);
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function checkProxyConnection(retries = 3) {
-  const delays = [5000, 10000, 15000]; // ms delays between retries
-
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      console.log(`Attempt ${attempt}: Checking proxy connection...`);
-      const res = await undisciFetch('https://api.ipify.org?format=json', {
-        dispatcher: proxyAgent,
-        signal: AbortSignal.timeout(15000)
-      });
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const data = await res.json();
-      console.log(`✅ Proxy works. IP: ${data.ip}`);
-      //sendTelegramMessage(`✅ Proxy works. IP: ${data.ip}`)
-      return true;
-    } catch (err) {
-      console.error(`❌ Proxy check failed: ${err.message}`);
-      sendTelegramMessage(`❌ Proxy check failed: ${err.message}`)
-      if (attempt < retries) {
-        const wait = delays[attempt - 1];
-        console.log(`⏳ Retrying in ${wait / 1000} seconds...`);
-        sendTelegramMessage(`⏳ Retrying in ${wait / 1000} seconds...`)
-        await delay(wait);
-      }
-    }
-  }
-  console.error('❌ Proxy connection failed after all retries.');
-  sendTelegramMessage('❌ Proxy connection failed after all retries.')
-  return false;
-}
-
-async function storeJobsInMongoDB(jobs) {
-  const client = new MongoClient(uri);
-
-  try {
-    await client.connect();
-    console.log('Connected to MongoDB');
-    //sendTelegramMessage('Connected to MongoDB')
-
-    const db = client.db(dbName);
-    const collection = db.collection(collectionName);
-
-    for (const job of jobs) {
-      const filter = { id: job.id };
-      const update = {
-        $set: {
-          id: job.id,
-          title: job.title,
-          description: job.description,
-          jobType: job?.jobTile?.job?.jobType,
-          contractorTier: job?.jobTile?.job?.contractorTier,
-
-          hourlyEngagementType: job?.jobTile?.job?.hourlyEngagementType,
-          hourlyEngagementDuration: job?.jobTile?.job?.hourlyEngagementDuration?.label,
-          hourlyBudgetMin: job?.jobTile?.job?.hourlyBudgetMin ? parseFloat(job?.jobTile?.job?.hourlyBudgetMin) : null,
-          hourlyBudgetMax: job?.jobTile?.job?.hourlyBudgetMax ? parseFloat(job?.jobTile?.job?.hourlyBudgetMax) : null,
-
-          fixedPriceEngagementDuration: job?.jobTile?.job?.fixedPriceEngagementDuration?.label,
-          fixedPriceAmount: job?.jobTile?.job?.fixedPriceAmount ? parseFloat(job?.jobTile?.job?.fixedPriceAmount?.amount) : null,
-
-          skills: job?.ontologySkills?.map(skill => skill.prettyName),
-
-          connectPrice: job.connectPrice,
-
-          enterpriseJob: job?.jobTile?.job?.enterpriseJob,
-
-          personsToHire: job?.jobTile?.job?.personsToHire,
-          totalApplicants: job?.jobTile?.job?.totalApplicants,
-          premium: job?.jobTile?.job?.premium,
-
-          createdDateTime: job?.jobTile?.job?.createTime ? new Date(job.jobTile.job.createTime) : null,
-          publishedDateTime: job?.jobTile?.job?.publishTime ? new Date(job.jobTile.job.publishTime) : null,
-
-          updatedAt: new Date(),
-		  createdAt: new Date(),
-          status: "PENDING"
-
-        }
-      };
-      const options = { upsert: true };
-      await collection.updateOne(filter, update, options);
-    }
-
-    console.log(`Stored ${jobs.length} jobs to MongoDB (with upsert)`);
-    //sendTelegramMessage(`Stored ${jobs.length} jobs to MongoDB (with upsert)`)
-  } catch (err) {
-    console.error('MongoDB error:', err);
-    sendTelegramMessage(`MongoDB error: ${err}`)
-  } finally {
-    await client.close();
-  }
-}
-
 
 
 async function fetchUpworkJobs() {
 
-  const proxyOk = await checkProxyConnection();
+  const proxyOk = await checkProxyConnection(proxyAgent);
   if (!proxyOk) return;
 
   const url = 'https://www.upwork.com/api/graphql/v1?alias=userJobSearch';
@@ -171,7 +78,7 @@ async function fetchUpworkJobs() {
 };
 
 
-  sendTelegramMessage(`--FETCH last 10 minutes jobs--`);
+  await sendTelegramMessage(`--FETCH last 10 minutes jobs--`);
   try {
     while (true) {
       await delay(1000);
@@ -267,33 +174,20 @@ async function fetchUpworkJobs() {
 }
 
 
-function getAvgHireRate(postedCount, totalHires) {
-  if(!postedCount || !totalHires) return 0;
-  if(totalHires >= postedCount) return 100;
-
-  return totalHires * 100 / postedCount;
-
-}
-
 async function enrichJobsWithDetails(concurrency = 1) {
 
-  const proxyOk = await checkProxyConnection();
+  const proxyOk = await checkProxyConnection(proxyAgent);
   if (!proxyOk) return;
 
-  const client = new MongoClient(uri);
+
   const url = 'https://www.upwork.com/api/graphql/v1?alias=gql-query-get-auth-job-details';
   const query = `fragment JobPubOpeningInfoFragment on Job {\n    ciphertext\n    id\n    type\n    access\n    title\n    hideBudget\n    createdOn\n    notSureProjectDuration\n    notSureFreelancersToHire\n    notSureExperienceLevel\n    notSureLocationPreference\n    premium\n  }\n  fragment JobPubOpeningSegmentationDataFragment on JobSegmentation {\n    customValue\n    label\n    name\n    sortOrder\n    type\n    value\n    skill {\n      description\n      externalLink\n      prettyName\n      skill\n      id\n    }\n  }\n  fragment JobPubOpeningSandDataFragment on SandsData {\n    occupation {\n      freeText\n      ontologyId\n      prefLabel\n      id\n      uid: id\n    }\n    ontologySkills {\n      groupId\n      id\n      freeText\n      prefLabel\n      groupPrefLabel\n      relevance\n    }\n    additionalSkills {\n      groupId\n      id\n      freeText\n      prefLabel\n      relevance\n    }\n  }\n  fragment JobPubOpeningFragment on JobPubOpeningInfo {\n    status\n    postedOn\n    publishTime\n    sourcingTime\n    startDate\n    deliveryDate\n    workload\n    contractorTier\n    description\n    info {\n      ...JobPubOpeningInfoFragment\n    }\n    segmentationData {\n      ...JobPubOpeningSegmentationDataFragment\n    }\n    sandsData {\n      ...JobPubOpeningSandDataFragment\n    }\n    category {\n      name\n      urlSlug\n    }\n    categoryGroup {\n      name\n      urlSlug\n    }\n    budget {\n      amount\n      currencyCode\n    }\n    annotations {\n      tags\n    }\n    engagementDuration {\n      label\n      weeks\n    }\n    extendedBudgetInfo {\n      hourlyBudgetMin\n      hourlyBudgetMax\n      hourlyBudgetType\n    }\n    attachments @include(if: $isLoggedIn) {\n      fileName\n      length\n      uri\n    }\n    clientActivity {\n      lastBuyerActivity\n      totalApplicants\n      totalHired\n      totalInvitedToInterview\n      unansweredInvites\n      invitationsSent\n      numberOfPositionsToHire\n    }\n    deliverables\n    deadline\n    tools {\n      name\n    }\n  }\n  fragment JobQualificationsFragment on JobQualifications {\n    countries\n    earnings\n    groupRecno\n    languages\n    localDescription\n    localFlexibilityDescription\n    localMarket\n    minJobSuccessScore\n    minOdeskHours\n    onSiteType\n    prefEnglishSkill\n    regions\n    risingTalent\n    shouldHavePortfolio\n    states\n    tests\n    timezones\n    type\n    locationCheckRequired\n    group {\n      groupId\n      groupLogo\n      groupName\n    }\n    location {\n      city\n      country\n      countryTimezone\n      offsetFromUtcMillis\n      state\n      worldRegion\n    }\n    locations {\n      id\n      type\n    }\n    minHoursWeek @skip(if: $isLoggedIn)\n  }\n  fragment JobAuthDetailsOpeningFragment on JobAuthOpeningInfo {\n    job {\n      ...JobPubOpeningFragment\n    }\n    qualifications {\n      ...JobQualificationsFragment\n    }\n    questions {\n      question\n      position\n    }\n  }\n  fragment JobPubBuyerInfoFragment on JobPubBuyerInfo {\n    location {\n      offsetFromUtcMillis\n      countryTimezone\n      city\n      country\n    }\n    stats {\n      totalAssignments\n      activeAssignmentsCount\n      hoursCount\n      feedbackCount\n      score\n      totalJobsWithHires\n      totalCharges {\n        amount\n      }\n    }\n    company {\n      name @include(if: $isLoggedIn)\n      companyId @include(if: $isLoggedIn)\n      isEDCReplicated\n      contractDate\n      profile {\n        industry\n        size\n      }\n    }\n    jobs {\n      openCount\n      postedCount @include(if: $isLoggedIn)\n      openJobs {\n        id\n        uid: id\n        isPtcPrivate\n        ciphertext\n        title\n        type\n      }\n    }\n    avgHourlyJobsRate @include(if: $isLoggedIn) {\n      amount\n    }\n  }\n  fragment JobAuthDetailsBuyerWorkHistoryFragment on BuyerWorkHistoryItem {\n    isPtcJob\n    status\n    isEDCReplicated\n    isPtcPrivate\n    startDate\n    endDate\n    totalCharge\n    totalHours\n    jobInfo {\n      title\n      id\n      uid: id\n      access\n      type\n      ciphertext\n    }\n    contractorInfo {\n      contractorName\n      accessType\n      ciphertext\n    }\n    rate {\n      amount\n    }\n    feedback {\n      feedbackSuppressed\n      score\n      comment\n    }\n    feedbackToClient {\n      feedbackSuppressed\n      score\n      comment\n    }\n  }\n  fragment JobAuthDetailsBuyerFragment on JobAuthBuyerInfo {\n    enterprise\n    isPaymentMethodVerified\n    info {\n      ...JobPubBuyerInfoFragment\n    }\n    workHistory {\n      ...JobAuthDetailsBuyerWorkHistoryFragment\n    }\n  }\n  fragment JobAuthDetailsCurrentUserInfoFragment on JobCurrentUserInfo {\n    owner\n    freelancerInfo {\n      profileState\n      applied\n      devProfileCiphertext\n      hired\n      application {\n        vjApplicationId\n      }\n      pendingInvite {\n        inviteId\n      }\n      contract {\n        contractId\n        status\n      }\n      hourlyRate {\n        amount\n      }\n      qualificationsMatches {\n        matches {\n          clientPreferred\n          clientPreferredLabel\n          freelancerValue\n          freelancerValueLabel\n          qualification\n          qualified\n        }\n      }\n    }\n  }\n  query JobAuthDetailsQuery(\n    $id: ID!\n    $isFreelancerOrAgency: Boolean!\n    $isLoggedIn: Boolean!\n  ) {\n    jobAuthDetails(id: $id) {\n      hiredApplicantNames\n      opening {\n        ...JobAuthDetailsOpeningFragment\n      }\n      buyer {\n        ...JobAuthDetailsBuyerFragment\n      }\n      currentUserInfo {\n        ...JobAuthDetailsCurrentUserInfoFragment\n      }\n      similarJobs {\n        id\n        uid: id\n        ciphertext\n        title\n        snippet\n      }\n      workLocation {\n        onSiteCity\n        onSiteCountry\n        onSiteReason\n        onSiteReasonFlexible\n        onSiteState\n        onSiteType\n      }\n      phoneVerificationStatus {\n        status\n      }\n      applicantsBidsStats {\n        avgRateBid {\n          amount\n          currencyCode\n        }\n        minRateBid {\n          amount\n          currencyCode\n        }\n        maxRateBid {\n          amount\n          currencyCode\n        }\n      }\n      specializedProfileOccupationId @include(if: $isFreelancerOrAgency)\n      applicationContext @include(if: $isFreelancerOrAgency) {\n        freelancerAllowed\n        clientAllowed\n      }\n    }\n  }`;
 
   try {
-    await client.connect();
-    const db = client.db(dbName);
-    const collection = db.collection(collectionName);
+
 
     // Fetch job IDs only that are not yet enriched
-    const jobs = await collection
-        .find({ status: "PENDING" })
-        .project({ id: 1 })
-        .toArray();
+    const jobs = await getPendingJobs();
 
     console.log(`🔍 Found ${jobs.length} jobs to enrich`);
     await sendTelegramMessage(`🔍 --ENRICH ${jobs.length} jobs`)
@@ -314,7 +208,7 @@ async function enrichJobsWithDetails(concurrency = 1) {
           headers,
           body: JSON.stringify(payload),
           dispatcher: proxyAgent,
-          signal: AbortSignal.timeout(35000)
+          signal: AbortSignal.timeout(25000)
 
       }
       try {
@@ -358,69 +252,27 @@ async function enrichJobsWithDetails(concurrency = 1) {
 
         let jobDetails = data?.data?.jobAuthDetails;
         if (!jobDetails) {
-          await collection.updateOne(
-              {id: job.id},
-              {
-                $set: {
-                  updatedAt: new Date(),
-                  status: "CORRUPTED"
-                },
-              });
+          await setJobStatus(job.id, "CORRUPTED");
           console.warn(`⚠️ No details returned for job ${job.id}`);
           await sendTelegramMessage(`⚠️ No details returned for job ${job.id}`)
           continue;
         }
 
-        await collection.updateOne(
-            {id: job.id},
-            {
-              $set: {
-                category: jobDetails?.opening?.job?.categoryGroup?.urlSlug,
-                subcategory: jobDetails?.opening?.job?.category?.urlSlug,
-                totalApplicants: jobDetails?.opening?.job?.clientActivity?.totalApplicants,
-                "client.location.country": jobDetails?.buyer?.info?.location?.country,
-				"client.location.city": jobDetails?.buyer?.info?.location?.city,
-                "client.location.countryTimezone": jobDetails?.buyer?.info?.location?.countryTimezone,
+        await enrichJob(job, jobDetails);
 
-                "client.stats.industry": jobDetails?.buyer?.info?.company?.profile?.industry,
-                "client.stats.companySize": jobDetails?.buyer?.info?.company?.profile?.size,
-
-                "client.stats.avgHourlyJobsRate": jobDetails?.buyer?.info?.avgHourlyJobsRate?.amount,
-                "client.stats.avgHireRate": getAvgHireRate(jobDetails?.buyer?.info?.jobs?.postedCount, jobDetails?.buyer?.info?.stats?.totalJobsWithHires),
-
-				"client.stats.totalReviews": jobDetails?.buyer?.info?.stats?.score,
-				"client.stats.totalFeedback": jobDetails?.buyer?.info?.stats?.feedbackCount,
-				"client.stats.totalSpent": jobDetails?.buyer?.info?.stats?.totalCharges?.amount,
-				"client.stats.totalPostedJobs": jobDetails?.buyer?.info?.jobs?.postedCount,
-				"client.stats.totalHiredJobs": jobDetails?.buyer?.info?.stats?.totalJobsWithHires,
-				"client.stats.hoursCount": jobDetails?.buyer?.info?.stats?.hoursCount,
-				"client.stats.verificationStatus": jobDetails?.buyer?.isPaymentMethodVerified,
-
-                questions: jobDetails?.opening?.questions ? jobDetails?.opening?.questions?.map(q => q.question) : null,
-                updatedAt: new Date(),
-                status: "COMPLETED"
-              }
-            }
-        );
         totalEnriched++;
-        //console.log(`✅ --Enriched job ${job.id}`);
 
       } catch (err) {
         console.error(`❌ Error enriching job ${job.id}: ${err.message}`);
-        sendTelegramMessage(`❌ Error enriching job ${job.id}: ${err.message}`)
+        await sendTelegramMessage(`❌ Error enriching job ${job.id}: ${err.message}`)
       }
     }
-
-
-
 
     console.log(`🎉 Enriched ${totalEnriched} of ${jobs.length} jobs`);
     sendTelegramMessage(`🎉 Enriched ${totalEnriched} of ${jobs.length} jobs`)
   } catch (err) {
     console.error('❌ MongoDB connection error:', err);
     sendTelegramMessage(`❌ MongoDB connection error ${err}`)
-  } finally {
-    await client.close();
   }
 }
 

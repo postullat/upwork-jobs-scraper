@@ -3,15 +3,14 @@ import puppeteer from 'puppeteer-extra'
 import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import {sendTelegramMessage} from "./service/telegramService.js";
 
-// Use stealth plugin
 puppeteer.use(StealthPlugin())
 
 const USE_PROXY = true
-const proxyHost = 'res.proxy-seller.com'
-const proxyPort = '10001'
-const proxyUser = 'b02fa50863fc96e6'
-const proxyPass = 'b8tRlFYa'
-const masterToken = '22942ae7.oauth2v2_1aff91954f5c18240605c743fea64798'
+const proxyHost = process.env.PROXY_HOST;
+const proxyPort = process.env.PROXY_PORT;
+const proxyUser = process.env.PROXY_USER;
+const proxyPass = process.env.PROXY_PASS;
+const masterToken = process.env.MASTER_TOKEN;
 
 export async function getOAuth2v2Cookies() {
     let browser
