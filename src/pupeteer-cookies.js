@@ -10,7 +10,7 @@ const proxyHost = process.env.PROXY_HOST;
 const proxyPort = process.env.PROXY_PORT;
 const proxyUser = process.env.PROXY_USER;
 const proxyPass = process.env.PROXY_PASS;
-const masterToken = process.env.MASTER_TOKEN;
+const masterRefresh7Token = process.env.MASTER_REFRESH_TOKEN;
 
 export async function getOAuth2v2Cookies() {
     let browser
@@ -51,11 +51,11 @@ export async function getOAuth2v2Cookies() {
 
         // Pre-seed Upwork master token cookie
         try {
-            if (masterToken) {
-                const expires = Math.floor(Date.now() / 1000) + 7 * 24 * 3600
+            if (masterRefresh7Token) {
+                const expires = Math.floor(Date.now() / 1000) + 10 * 24 * 3600
                 await page.setCookie({
-                    name: 'master_access_token',
-                    value: String(masterToken),
+                    name: 'master_refresh_token',
+                    value: String(masterRefresh7Token),
                     domain: '.upwork.com',
                     path: '/',
                     httpOnly: false,
